@@ -1,4 +1,4 @@
-#include "data_generator.h"
+#include "../include/data_generator.h"
 #include <stdlib.h>
 #include <time.h>
 

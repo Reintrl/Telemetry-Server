@@ -1,7 +1,7 @@
-#include "server.h"
-#include "config.h"
-#include "logger.h"
-#include "data_generator.h"
+#include "../include/server.h"
+#include "../include/config.h"
+#include "../include/logger.h"
+#include "../include/data_generator.h"
 
 int main(int argc, char** argv) {
     load_config("config.json");

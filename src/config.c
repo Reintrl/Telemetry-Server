@@ -1,4 +1,4 @@
-#include "config.h"
+#include "../include/config.h"
 #include <stdio.h>
 #include <json-c/json.h>
 
