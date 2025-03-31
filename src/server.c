@@ -1,86 +1,116 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <pthread.h>
 #include "../include/server.h"
 #include "../include/data_generator.h"
 #include "../include/serialization.h"
 #include "../include/logger.h"
-#include <string.h>          // Для strlen()
-#include <stdlib.h>          // Для exit()
-#include <stdio.h>           // Для printf()
-#include <arpa/inet.h>  // Для inet_ntoa()
-#include <netinet/in.h> // Для sockaddr_in
 
+#define MAX_CLIENTS 10
+#define DEFAULT_PORT 8080
+#define DEFAULT_INTERVAL_MS 500
 
 static int server_fd;
-static int client_sockets[MAX_CLIENTS];
+static int port = DEFAULT_PORT;
+static int interval_ms = DEFAULT_INTERVAL_MS;
 
-void start_server(int port) {
+typedef struct {
+    int socket;
+    struct sockaddr_in address;
+} client_info_t;
+
+void* handle_client(void* arg) {
+    client_info_t* client = (client_info_t*)arg;
+    char client_ip[INET_ADDRSTRLEN];
+
+    inet_ntop(AF_INET, &(client->address.sin_addr), client_ip, INET_ADDRSTRLEN);
+    log_message("Client connected: %s:%d", client_ip, ntohs(client->address.sin_port));
+
+    while(1) {
+        TelemetryData data = generate_telemetry();
+        char json[256];
+        serialize_to_json(&data, json, sizeof(json));
+
+        if(send(client->socket, json, strlen(json), 0) <= 0) {
+            break;
+        }
+
+        usleep(interval_ms * 1000);
+    }
+
+    close(client->socket);
+    log_message("Client disconnected: %s:%d", client_ip, ntohs(client->address.sin_port));
+    free(client);
+    return NULL;
+}
+
+void start_server() {
     struct sockaddr_in address = {
         .sin_family = AF_INET,
         .sin_port = htons(port),
         .sin_addr.s_addr = INADDR_ANY
     };
 
-    // Создание и настройка сокета
-    server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int));
-    bind(server_fd, (struct sockaddr*)&address, sizeof(address));
-    listen(server_fd, 5);
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+        perror("socket failed");
+        exit(EXIT_FAILURE);
+    }
 
-    log_message("Server started");
+    int opt = 1;
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
+        perror("setsockopt");
+        exit(EXIT_FAILURE);
+    }
+
+    if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) < 0) {
+        perror("bind failed");
+        exit(EXIT_FAILURE);
+    }
+
+    if (listen(server_fd, MAX_CLIENTS) < 0) {
+        perror("listen");
+        exit(EXIT_FAILURE);
+    }
+
+    log_message("Server started on port %d", port);
 }
 
-void handle_clients() {
-    fd_set readfds;
+void run_server() {
     while(1) {
-        FD_ZERO(&readfds);
-        FD_SET(server_fd, &readfds);
-        int max_sd = server_fd;
+        client_info_t* client = malloc(sizeof(client_info_t));
+        socklen_t addr_len = sizeof(client->address);
 
-        // Добавление клиентов в набор
-        for(int i = 0; i < MAX_CLIENTS; i++) {
-            if(client_sockets[i] > 0) FD_SET(client_sockets[i], &readfds);
-            if(client_sockets[i] > max_sd) max_sd = client_sockets[i];
+        client->socket = accept(server_fd, (struct sockaddr*)&(client->address), &addr_len);
+        if (client->socket < 0) {
+            perror("accept");
+            free(client);
+            continue;
         }
 
-        select(max_sd + 1, &readfds, NULL, NULL, NULL);
-
-        // Обработка новых подключений
-        if(FD_ISSET(server_fd, &readfds)) {
-            struct sockaddr_in client_addr;
-            socklen_t addr_len = sizeof(client_addr);
-            int new_socket = accept(server_fd, (struct sockaddr*)&client_addr, &addr_len);
-
-            if (new_socket < 0) {
-                log_error("Accept failed");
-                continue;
-            }
-
-            // Добавляем сокет в массив клиентов
-            for (int i = 0; i < MAX_CLIENTS; i++) {
-                if (client_sockets[i] == 0) {
-                    client_sockets[i] = new_socket;
-                    char log_msg[100];
-                    sprintf(log_msg, "New client connected: %s:%d",
-                            inet_ntoa(client_addr.sin_addr),
-                            ntohs(client_addr.sin_port));
-                    log_message(log_msg);
-                    break;
-                }
-            }
+        pthread_t thread_id;
+        if (pthread_create(&thread_id, NULL, handle_client, (void*)client) != 0) {
+            perror("pthread_create");
+            close(client->socket);
+            free(client);
         }
-
-        // Обход клиентов для отправки данных
-        for (int i = 0; i < MAX_CLIENTS; i++) {
-            if (client_sockets[i] > 0 && FD_ISSET(client_sockets[i], &readfds)) {
-                TelemetryData data = generate_telemetry();
-                char json[256];
-                serialize_to_json(&data, json, sizeof(json));
-
-                if (send(client_sockets[i], json, strlen(json), 0) <= 0) {
-                    close(client_sockets[i]);
-                    client_sockets[i] = 0; // Удаляем сокет из массива
-                    log_message("Client disconnected");
-                }
-            }
-        }
+        pthread_detach(thread_id);
     }
+}
+
+void stop_server() {
+    close(server_fd);
+    log_message("Server stopped");
+}
+
+void set_server_port(int new_port) {
+    port = new_port;
+}
+
+void set_update_interval(int ms) {
+    interval_ms = ms;
 }

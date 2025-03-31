@@ -9,7 +9,10 @@
 #define MAX_CLIENTS 10
 #define BUFFER_SIZE 1024
 
-void start_server(int port);
-void handle_clients();
+void start_server();
+void run_server();
+void stop_server();
+void set_server_port(int new_port);
+void set_update_interval(int ms);
 
 #endif
