@@ -1,14 +1,28 @@
-#include "../include/server.h"
 #include "../include/config.h"
+#include "../include/server.h"
 #include "../include/logger.h"
-#include "../include/data_generator.h"
+#include <stdio.h>
+#include <signal.h>
+#include <stdlib.h>
 
-int main() {
-    set_server_port(8080); // Опционально
-    set_update_interval(1000); // 1 сек между отправками
+void handle_shutdown_signal(int sig) {
+    printf("\nReceived signal %d, shutting down...\n", sig);
+    stop_server();
+    exit(EXIT_SUCCESS);
+}
+
+int main(int argc, char* argv[]) {
+    const char* config_file = (argc > 1) ? argv[1] : "../config.json";
+
+    signal(SIGINT, handle_shutdown_signal);
+    signal(SIGTERM, handle_shutdown_signal);
+    setup_signal_handlers();
+
+    load_config(config_file);
+    print_config();
 
     start_server();
-    run_server(); // Блокирующий вызов
-    // stop_server(); // По Ctrl+C
-    return 0;
+    run_server();
+
+    return EXIT_SUCCESS;
 }
