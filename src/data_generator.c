@@ -1,4 +1,7 @@
 #include "../include/data_generator.h"
+
+#include <stdio.h>
+
 #include "../include/config.h"
 #include <stdlib.h>
 #include <time.h>
@@ -33,12 +36,31 @@ TelemetryData generate_telemetry_by_type(const char* sensor_type) {
     TelemetryData data;
     strcpy(data.sensor_type, sensor_type);
     data.sensor_id = sensor_cfg->min_id + rand() % (sensor_cfg->max_id - sensor_cfg->min_id + 1);
-    data.value = sensor_cfg->min_value +
-                (rand() % (int)((sensor_cfg->max_value - sensor_cfg->min_value) * 100)) / 100.0;
     strcpy(data.unit, sensor_cfg->unit);
 
-    int status_index = rand() % 3;
-    strncpy(data.status, sensor_cfg->status_options[status_index], sizeof(data.status)-1);
+    // Специальная генерация для GPS датчиков
+    if (strcmp(sensor_type, "gps") == 0) {
+        // Генерируем координаты (широта и долгота)
+        double lat = 53.9 + (rand() % 1000) / 10000.0;
+        double lon = 27.5667 + (rand() % 1000) / 10000.0;
+        snprintf(data.value_str, sizeof(data.value_str), "%.6f,%.6f", lat, lon);
+        data.value = 0.0; // Не используется для GPS
+    } else {
+        data.value = sensor_cfg->min_value +
+                   (rand() % (int)((sensor_cfg->max_value - sensor_cfg->min_value) * 100)) / 100.0;
+        snprintf(data.value_str, sizeof(data.value_str), "%.2f", data.value);
+    }
+
+    // Выбор статуса с учетом типа датчика
+    if (strcmp(sensor_type, "battery") == 0) {
+        // Для батареи 4 возможных статуса
+        int status_index = rand() % 4;
+        strncpy(data.status, sensor_cfg->status_options[status_index], sizeof(data.status)-1);
+    } else {
+        // Для остальных датчиков 3 статуса
+        int status_index = rand() % 3;
+        strncpy(data.status, sensor_cfg->status_options[status_index], sizeof(data.status)-1);
+    }
 
     strftime(data.timestamp, sizeof(data.timestamp), "%Y-%m-%d %H:%M:%S", tm_info);
 

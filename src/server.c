@@ -22,6 +22,8 @@ void handle_sigpipe(int sig) {
     log_message(LOG_INFO, "SIGPIPE received, client disconnected");
 }
 
+
+
 void setup_signal_handlers() {
     struct sigaction sa;
     sa.sa_handler = handle_sigpipe;
@@ -46,6 +48,37 @@ int is_client_connected(int sock) {
     return 1;
 }
 
+void* sensor_thread(void* arg) {
+    sensor_thread_data_t* data = (sensor_thread_data_t*)arg;
+    const ServerConfig* cfg = get_config();
+    char json_buffer[512];
+    struct timespec sleep_time = {
+        .tv_sec = data->update_interval_ms / 1000,
+        .tv_nsec = (data->update_interval_ms % 1000) * 1000000
+    };
+
+    while (server_running && is_client_connected(data->socket)) {
+        TelemetryData telemetry = generate_telemetry_by_type(data->sensor_type);
+        serialize_to_json(&telemetry, json_buffer, sizeof(json_buffer));
+
+        if (send(data->socket, json_buffer, strlen(json_buffer), MSG_NOSIGNAL) <= 0) {
+            if (errno == EPIPE) {
+                log_message(LOG_INFO, "Client %s:%d disconnected (broken pipe)",
+                           data->client_ip, data->client_port);
+            } else {
+                log_message(LOG_ERROR, "Error sending to %s:%d: %s",
+                           data->client_ip, data->client_port, strerror(errno));
+            }
+            break;
+        }
+
+        nanosleep(&sleep_time, NULL);
+    }
+
+    free(data);
+    return NULL;
+}
+
 void* handle_client(void* arg) {
     client_info_t* client = (client_info_t*)arg;
     const ServerConfig* cfg = get_config();
@@ -53,18 +86,21 @@ void* handle_client(void* arg) {
     char buffer[1024];
     int* selected_sensors = malloc(cfg->max_sensors * sizeof(int));
     int sensor_count = 0;
+    pthread_t* sensor_threads = NULL;
 
     if (!selected_sensors) {
         inet_ntop(AF_INET, &(client->address.sin_addr), client_ip, INET_ADDRSTRLEN);
-        log_message(LOG_ERROR, "Memory allocation failed for client %s:%d", client_ip, ntohs(client->address.sin_port));
+        log_message(LOG_ERROR, "Memory allocation failed for client %s:%d",
+                   client_ip, ntohs(client->address.sin_port));
         goto cleanup;
     }
 
     inet_ntop(AF_INET, &(client->address.sin_addr), client_ip, INET_ADDRSTRLEN);
-    log_message(LOG_INFO, "Client %s:%d connected", client_ip, ntohs(client->address.sin_port));
+    int client_port = ntohs(client->address.sin_port);
+    log_message(LOG_INFO, "Client %s:%d connected", client_ip, client_port);
 
     // Формируем список датчиков
-    char sensor_list[1024];
+    char sensor_list[2048];
     snprintf(sensor_list, sizeof(sensor_list),
              "Available sensors (select up to %d comma-separated numbers):\n",
              cfg->max_sensors);
@@ -81,7 +117,7 @@ void* handle_client(void* arg) {
 
     // Отправляем список датчиков клиенту
     if (send(client->socket, sensor_list, strlen(sensor_list), 0) <= 0) {
-        log_message(LOG_ERROR, "Failed to send sensor list to %s:%d", client_ip, ntohs(client->address.sin_port));
+        log_message(LOG_ERROR, "Failed to send sensor list to %s:%d", client_ip, client_port);
         goto cleanup;
     }
 
@@ -90,10 +126,10 @@ void* handle_client(void* arg) {
     if (bytes_read <= 0) {
         if (bytes_read == 0) {
             log_message(LOG_INFO, "Client %s:%d disconnected during selection",
-                       client_ip, ntohs(client->address.sin_port));
+                       client_ip, client_port);
         } else {
             log_message(LOG_ERROR, "Error receiving selection from %s:%d: %s",
-                       client_ip, ntohs(client->address.sin_port), strerror(errno));
+                       client_ip, client_port, strerror(errno));
         }
         goto cleanup;
     }
@@ -107,7 +143,7 @@ void* handle_client(void* arg) {
         if (idx >= 0 && idx < cfg->sensor_config_count) {
             selected_sensors[sensor_count++] = idx;
             log_message(LOG_INFO, "Client %s:%d selected sensor: %s",
-                       client_ip, ntohs(client->address.sin_port),
+                       client_ip, client_port,
                        cfg->sensor_configs[idx].sensor_type);
         }
         token = strtok(NULL, ",");
@@ -117,7 +153,7 @@ void* handle_client(void* arg) {
         const char* msg = "No valid sensors selected. Disconnecting.\n";
         send(client->socket, msg, strlen(msg), 0);
         log_message(LOG_WARNING, "Client %s:%d selected no valid sensors",
-                   client_ip, ntohs(client->address.sin_port));
+                   client_ip, client_port);
         goto cleanup;
     }
 
@@ -127,45 +163,57 @@ void* handle_client(void* arg) {
     snprintf(confirm_msg, sizeof(confirm_msg), confirm_fmt, sensor_count);
     if (send(client->socket, confirm_msg, strlen(confirm_msg), 0) <= 0) {
         log_message(LOG_ERROR, "Failed to send confirmation to %s:%d",
-                   client_ip, ntohs(client->address.sin_port));
+                   client_ip, client_port);
         goto cleanup;
     }
 
-    // Основной цикл отправки данных
-    struct timespec sleep_time = {
-        .tv_sec = cfg->update_interval_ms / 1000,
-        .tv_nsec = (cfg->update_interval_ms % 1000) * 1000000
-    };
+    // Создаем массив для хранения ID потоков датчиков
+    sensor_threads = malloc(sensor_count * sizeof(pthread_t));
+    if (!sensor_threads) {
+        log_message(LOG_ERROR, "Memory allocation failed for sensor threads");
+        goto cleanup;
+    }
 
-    while (server_running && is_client_connected(client->socket)) {
-        for (int i = 0; i < sensor_count; i++) {
-            int sensor_idx = selected_sensors[i];
-            const char* sensor_name = cfg->sensor_configs[sensor_idx].sensor_type;
-            TelemetryData data = generate_telemetry_by_type(sensor_name);
+    // Создаем потоки для каждого выбранного датчика
+    for (int i = 0; i < sensor_count; i++) {
+        int sensor_idx = selected_sensors[i];
+        const char* sensor_name = cfg->sensor_configs[sensor_idx].sensor_type;
 
-            char json_buffer[512];
-            serialize_to_json(&data, json_buffer, sizeof(json_buffer));
+        sensor_thread_data_t* thread_data = malloc(sizeof(sensor_thread_data_t));
+        if (!thread_data) {
+            log_message(LOG_ERROR, "Memory allocation failed for sensor thread data");
+            continue;
+        }
 
-            if (send(client->socket, json_buffer, strlen(json_buffer), MSG_NOSIGNAL) <= 0) {
-                if (errno == EPIPE) {
-                    log_message(LOG_INFO, "Client %s:%d disconnected (broken pipe)",
-                               client_ip, ntohs(client->address.sin_port));
-                } else {
-                    log_message(LOG_ERROR, "Error sending to %s:%d: %s",
-                               client_ip, ntohs(client->address.sin_port), strerror(errno));
-                }
-                goto cleanup;
-            }
+        thread_data->socket = client->socket;
+        strncpy(thread_data->client_ip, client_ip, INET_ADDRSTRLEN);
+        thread_data->client_port = client_port;
+        thread_data->sensor_type = sensor_name;
+        thread_data->update_interval_ms = cfg->update_interval_ms;
 
-            nanosleep(&sleep_time, NULL);
+        if (pthread_create(&sensor_threads[i], NULL, sensor_thread, (void*)thread_data) != 0) {
+            log_message(LOG_ERROR, "Thread creation failed for sensor %s", sensor_name);
+            free(thread_data);
         }
     }
 
-    log_message(LOG_INFO, "Client %s:%d disconnected normally",
-               client_ip, ntohs(client->address.sin_port));
+    // Основной цикл - проверяем соединение с клиентом
+    while (server_running && is_client_connected(client->socket)) {
+        sleep(1);
+    }
+
+    // Останавливаем все потоки датчиков
+    for (int i = 0; i < sensor_count; i++) {
+        if (sensor_threads[i]) {
+            pthread_cancel(sensor_threads[i]);
+        }
+    }
+
+    log_message(LOG_INFO, "Client %s:%d disconnected", client_ip, client_port);
 
 cleanup:
     free(selected_sensors);
+    if (sensor_threads) free(sensor_threads);
     close(client->socket);
     pthread_mutex_lock(&client_count_mutex);
     active_clients_count--;

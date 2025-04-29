@@ -12,6 +12,14 @@ typedef struct {
     struct sockaddr_in address;
 } client_info_t;
 
+typedef struct {
+    int socket;
+    char client_ip[INET_ADDRSTRLEN];
+    int client_port;
+    const char* sensor_type;
+    int update_interval_ms;
+} sensor_thread_data_t;
+
 void setup_signal_handlers();
 void start_server();
 void run_server();

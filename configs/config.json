@@ -1,7 +1,7 @@
 {
   "port": 9090,
   "max_clients": 5,
-  "max_sensors": 20,
+  "max_sensors": 10,
   "update_interval_ms": 1000,
   "log_file": "telemetry.log",
   "log_to_console": true,
@@ -9,6 +9,11 @@
   "serialization_format": "json",
   "sensor_configs": [
     "../configs/temperature.json",
-    "../configs/pressure.json"
+    "../configs/pressure.json",
+    "../configs/humidity.json",
+    "../configs/vibration.json",
+    "../configs/gps.json",
+    "../configs/power.json",
+    "../configs/battery.json"
   ]
 }
