@@ -8,18 +8,12 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <errno.h>
 
 pthread_mutex_t client_count_mutex = PTHREAD_MUTEX_INITIALIZER;
 int active_clients_count = 0;
-
-typedef struct {
-    int socket;
-    struct sockaddr_in address;
-} client_info_t;
 
 static int server_fd;
 static volatile sig_atomic_t server_running = 1;
@@ -56,34 +50,126 @@ void* handle_client(void* arg) {
     client_info_t* client = (client_info_t*)arg;
     const ServerConfig* cfg = get_config();
     char client_ip[INET_ADDRSTRLEN];
+    char buffer[1024];
+    int* selected_sensors = malloc(cfg->max_sensors * sizeof(int));
+    int sensor_count = 0;
 
-    inet_ntop(AF_INET, &(client->address.sin_addr), client_ip, INET_ADDRSTRLEN);
-    log_message(LOG_INFO, "Client connected: %s:%d", client_ip, ntohs(client->address.sin_port));
-
-    while(server_running && is_client_connected(client->socket)) {
-        TelemetryData data = generate_telemetry();
-        char buffer[256];
-
-        serialize_to_json(&data, buffer, sizeof(buffer));
-
-        ssize_t sent = send(client->socket, buffer, strlen(buffer), MSG_NOSIGNAL);
-        if (sent <= 0) {
-            if (errno != EPIPE) {
-                log_message(LOG_ERROR, "Failed to send data to client");
-            }
-            break;
-        }
-
-        usleep(cfg->update_interval_ms * 1000);
+    if (!selected_sensors) {
+        inet_ntop(AF_INET, &(client->address.sin_addr), client_ip, INET_ADDRSTRLEN);
+        log_message(LOG_ERROR, "Memory allocation failed for client %s:%d", client_ip, ntohs(client->address.sin_port));
+        goto cleanup;
     }
 
-    close(client->socket);
+    inet_ntop(AF_INET, &(client->address.sin_addr), client_ip, INET_ADDRSTRLEN);
+    log_message(LOG_INFO, "Client %s:%d connected", client_ip, ntohs(client->address.sin_port));
 
+    // Формируем список датчиков
+    char sensor_list[1024];
+    snprintf(sensor_list, sizeof(sensor_list),
+             "Available sensors (select up to %d comma-separated numbers):\n",
+             cfg->max_sensors);
+
+    for (int i = 0; i < cfg->sensor_config_count; i++) {
+        char tmp[100];
+        snprintf(tmp, sizeof(tmp), "%d. %s (IDs %d-%d)\n",
+                i+1, cfg->sensor_configs[i].sensor_type,
+                cfg->sensor_configs[i].min_id, cfg->sensor_configs[i].max_id);
+        strncat(sensor_list, tmp, sizeof(sensor_list) - strlen(sensor_list) - 1);
+    }
+    strncat(sensor_list, "Enter your selection (e.g. '1,3,5'): ",
+           sizeof(sensor_list) - strlen(sensor_list) - 1);
+
+    // Отправляем список датчиков клиенту
+    if (send(client->socket, sensor_list, strlen(sensor_list), 0) <= 0) {
+        log_message(LOG_ERROR, "Failed to send sensor list to %s:%d", client_ip, ntohs(client->address.sin_port));
+        goto cleanup;
+    }
+
+    // Получаем выбор клиента
+    ssize_t bytes_read = recv(client->socket, buffer, sizeof(buffer) - 1, 0);
+    if (bytes_read <= 0) {
+        if (bytes_read == 0) {
+            log_message(LOG_INFO, "Client %s:%d disconnected during selection",
+                       client_ip, ntohs(client->address.sin_port));
+        } else {
+            log_message(LOG_ERROR, "Error receiving selection from %s:%d: %s",
+                       client_ip, ntohs(client->address.sin_port), strerror(errno));
+        }
+        goto cleanup;
+    }
+
+    buffer[bytes_read] = '\0';
+
+    // Парсим выбор клиента
+    char* token = strtok(buffer, ",");
+    while (token != NULL && sensor_count < cfg->max_sensors) {
+        int idx = atoi(token) - 1;  // Конвертируем в 0-based индекс
+        if (idx >= 0 && idx < cfg->sensor_config_count) {
+            selected_sensors[sensor_count++] = idx;
+            log_message(LOG_INFO, "Client %s:%d selected sensor: %s",
+                       client_ip, ntohs(client->address.sin_port),
+                       cfg->sensor_configs[idx].sensor_type);
+        }
+        token = strtok(NULL, ",");
+    }
+
+    if (sensor_count == 0) {
+        const char* msg = "No valid sensors selected. Disconnecting.\n";
+        send(client->socket, msg, strlen(msg), 0);
+        log_message(LOG_WARNING, "Client %s:%d selected no valid sensors",
+                   client_ip, ntohs(client->address.sin_port));
+        goto cleanup;
+    }
+
+    // Подтверждаем выбор
+    const char* confirm_fmt = "Selected %d sensors. Starting data stream...\n";
+    char confirm_msg[100];
+    snprintf(confirm_msg, sizeof(confirm_msg), confirm_fmt, sensor_count);
+    if (send(client->socket, confirm_msg, strlen(confirm_msg), 0) <= 0) {
+        log_message(LOG_ERROR, "Failed to send confirmation to %s:%d",
+                   client_ip, ntohs(client->address.sin_port));
+        goto cleanup;
+    }
+
+    // Основной цикл отправки данных
+    struct timespec sleep_time = {
+        .tv_sec = cfg->update_interval_ms / 1000,
+        .tv_nsec = (cfg->update_interval_ms % 1000) * 1000000
+    };
+
+    while (server_running && is_client_connected(client->socket)) {
+        for (int i = 0; i < sensor_count; i++) {
+            int sensor_idx = selected_sensors[i];
+            const char* sensor_name = cfg->sensor_configs[sensor_idx].sensor_type;
+            TelemetryData data = generate_telemetry_by_type(sensor_name);
+
+            char json_buffer[512];
+            serialize_to_json(&data, json_buffer, sizeof(json_buffer));
+
+            if (send(client->socket, json_buffer, strlen(json_buffer), MSG_NOSIGNAL) <= 0) {
+                if (errno == EPIPE) {
+                    log_message(LOG_INFO, "Client %s:%d disconnected (broken pipe)",
+                               client_ip, ntohs(client->address.sin_port));
+                } else {
+                    log_message(LOG_ERROR, "Error sending to %s:%d: %s",
+                               client_ip, ntohs(client->address.sin_port), strerror(errno));
+                }
+                goto cleanup;
+            }
+
+            nanosleep(&sleep_time, NULL);
+        }
+    }
+
+    log_message(LOG_INFO, "Client %s:%d disconnected normally",
+               client_ip, ntohs(client->address.sin_port));
+
+cleanup:
+    free(selected_sensors);
+    close(client->socket);
     pthread_mutex_lock(&client_count_mutex);
     active_clients_count--;
     pthread_mutex_unlock(&client_count_mutex);
-
-    log_message(LOG_INFO, "Client disconnected: %s:%d", client_ip, ntohs(client->address.sin_port));
     free(client);
     return NULL;
 }

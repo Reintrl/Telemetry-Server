@@ -1,0 +1,10 @@
+{
+  "sensor_type": "humidity",
+  "min_id": 300,
+  "max_id": 399,
+  "min_value": 20.0,
+  "max_value": 100.0,
+  "unit": "%",
+  "status_options": ["NORMAL", "LOW", "HIGH"],
+  "update_variation": 1.5
+}

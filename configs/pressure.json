@@ -1,0 +1,10 @@
+{
+  "sensor_type": "pressure",
+  "min_id": 200,
+  "max_id": 299,
+  "min_value": 900.0,
+  "max_value": 1100.0,
+  "unit": "hPa",
+  "status_options": ["NORMAL", "HIGH", "LOW"],
+  "update_variation": 1.0
+}

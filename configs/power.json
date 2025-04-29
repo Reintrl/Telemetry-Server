@@ -1,0 +1,10 @@
+{
+  "sensor_type": "power",
+  "min_id": 600,
+  "max_id": 699,
+  "min_value": 0.0,
+  "max_value": 5000.0,
+  "unit": "W",
+  "status_options": ["NORMAL", "OVERLOAD", "UNDERLOAD"],
+  "update_variation": 50.0
+}

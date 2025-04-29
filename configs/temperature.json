@@ -1,0 +1,10 @@
+{
+  "sensor_type": "temperature",
+  "min_id": 100,
+  "max_id": 199,
+  "min_value": -20.0,
+  "max_value": 50.0,
+  "unit": "C",
+  "status_options": ["OK", "WARNING", "CRITICAL"],
+  "update_variation": 0.5
+}

@@ -1,0 +1,10 @@
+{
+  "sensor_type": "gps",
+  "min_id": 500,
+  "max_id": 599,
+  "min_value": 0.0,
+  "max_value": 1.0,
+  "unit": "deg",
+  "status_options": ["VALID", "INVALID", "LOW_ACCURACY"],
+  "update_variation": 0.01
+}

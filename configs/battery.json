@@ -1,0 +1,14 @@
+{
+  "sensor_type": "battery",
+  "min_id": 700,
+  "max_id": 799,
+  "min_value": 0.0,
+  "max_value": 100.0,
+  "unit": "%",
+  "status_options": ["NORMAL", "LOW", "CRITICAL", "FAILURE"],
+  "update_variation": 1.0,
+  "warning_low": 20.0,
+  "warning_high": 90.0,
+  "critical_low": 10.0,
+  "critical_high": 95.0
+}

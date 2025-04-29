@@ -12,7 +12,7 @@ void handle_shutdown_signal(int sig) {
 }
 
 int main(int argc, char* argv[]) {
-    const char* config_file = (argc > 1) ? argv[1] : "../config.json";
+    const char* config_file = (argc > 1) ? argv[1] : "../configs/config.json";
 
     signal(SIGINT, handle_shutdown_signal);
     signal(SIGTERM, handle_shutdown_signal);

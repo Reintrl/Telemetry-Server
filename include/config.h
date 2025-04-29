@@ -4,29 +4,40 @@
 #include <stdint.h>
 
 typedef struct {
+    char sensor_type[20];
+    int min_id;
+    int max_id;
+    double min_value;
+    double max_value;
+    char unit[10];
+    char status_options[3][20];
+    double update_variation;
+} SensorConfig;
+
+typedef struct {
     // Server settings
     int port;
     int max_clients;
+    int max_sensors;  // Добавлено
     int update_interval_ms;
-
-    // Data generator settings
-    int min_sensor_id;
-    int max_sensor_id;
-    float min_temperature;
-    float max_temperature;
-    char status_options[3][20]; // Possible status values
 
     // Logging settings
     char log_file[256];
     int log_to_console;
-    int log_level; // 0-error, 1-warn, 2-info, 3-debug
+    int log_level;
 
     // Serialization settings
-    char serialization_format[10]; // "json", "xml", etc.
+    char serialization_format[10];
+
+    // Sensor configurations
+    SensorConfig* sensor_configs;
+    int sensor_config_count;
 } ServerConfig;
 
 void load_config(const char* filename);
+void load_sensor_configs(ServerConfig* config, const char** config_files, int count);
 const ServerConfig* get_config();
 void print_config();
+const SensorConfig* get_sensor_config(const char* sensor_type);
 
 #endif
