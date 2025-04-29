@@ -20,9 +20,11 @@ int main(int argc, char* argv[]) {
 
     load_config(config_file);
     print_config();
+    init_logger();  // Инициализация логгера
 
     start_server();
     run_server();
 
+    close_logger();  // Корректное закрытие
     return EXIT_SUCCESS;
 }
