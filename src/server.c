@@ -22,8 +22,6 @@ void handle_sigpipe(int sig) {
     log_message(LOG_INFO, "SIGPIPE received, client disconnected");
 }
 
-
-
 void setup_signal_handlers() {
     struct sigaction sa;
     sa.sa_handler = handle_sigpipe;
@@ -50,18 +48,24 @@ int is_client_connected(int sock) {
 
 void* sensor_thread(void* arg) {
     sensor_thread_data_t* data = (sensor_thread_data_t*)arg;
-    const ServerConfig* cfg = get_config();
-    char json_buffer[512];
+    const SensorConfig* sensor_cfg = get_sensor_config(data->sensor_type);
+    if (!sensor_cfg) {
+        free(data);
+        return NULL;
+    }
+
+    char buffer[512];
     struct timespec sleep_time = {
-        .tv_sec = data->update_interval_ms / 1000,
-        .tv_nsec = (data->update_interval_ms % 1000) * 1000000
+        .tv_sec = sensor_cfg->update_interval_ms / 1000,
+        .tv_nsec = (sensor_cfg->update_interval_ms % 1000) * 1000000
     };
 
     while (server_running && is_client_connected(data->socket)) {
         TelemetryData telemetry = generate_telemetry_by_type(data->sensor_type);
-        serialize_to_json(&telemetry, json_buffer, sizeof(json_buffer));
+        SerializeFormat format = get_random_serialization_format();
+        serialize_data(&telemetry, buffer, sizeof(buffer), format);
 
-        if (send(data->socket, json_buffer, strlen(json_buffer), MSG_NOSIGNAL) <= 0) {
+        if (send(data->socket, buffer, strlen(buffer), MSG_NOSIGNAL) <= 0) {
             if (errno == EPIPE) {
                 log_message(LOG_INFO, "Client %s:%d disconnected (broken pipe)",
                            data->client_ip, data->client_port);
@@ -189,7 +193,6 @@ void* handle_client(void* arg) {
         strncpy(thread_data->client_ip, client_ip, INET_ADDRSTRLEN);
         thread_data->client_port = client_port;
         thread_data->sensor_type = sensor_name;
-        thread_data->update_interval_ms = cfg->update_interval_ms;
 
         if (pthread_create(&sensor_threads[i], NULL, sensor_thread, (void*)thread_data) != 0) {
             log_message(LOG_ERROR, "Thread creation failed for sensor %s", sensor_name);

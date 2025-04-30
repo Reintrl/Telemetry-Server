@@ -3,6 +3,12 @@
 
 #include <stdint.h>
 
+typedef enum {
+    SERIALIZE_JSON,
+    SERIALIZE_XML,
+    SERIALIZE_CSV
+} SerializeFormat;
+
 typedef struct {
     char sensor_type[20];
     int min_id;
@@ -10,6 +16,7 @@ typedef struct {
     double min_value;
     double max_value;
     char unit[10];
+    int update_interval_ms;
 } SensorConfig;
 
 typedef struct {
@@ -23,9 +30,6 @@ typedef struct {
     char log_file[256];
     int log_to_console;
     int log_level;
-
-    // Serialization settings
-    char serialization_format[10];
 
     // Sensor configurations
     SensorConfig* sensor_configs;

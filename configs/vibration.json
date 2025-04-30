@@ -4,5 +4,6 @@
   "max_id": 499,
   "min_value": 0.0,
   "max_value": 10.0,
-  "unit": "mm/s"
+  "unit": "mm/s",
+  "update_interval_ms": 500
 }

@@ -4,5 +4,6 @@
   "max_id": 799,
   "min_value": 0.0,
   "max_value": 100.0,
-  "unit": "%"
+  "unit": "%",
+  "update_interval_ms": 1000
 }

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <signal.h>
 #include <stdlib.h>
+#include <time.h>
 
 void handle_shutdown_signal(int sig) {
     printf("\nReceived signal %d, shutting down...\n", sig);
@@ -12,6 +13,7 @@ void handle_shutdown_signal(int sig) {
 }
 
 int main(int argc, char* argv[]) {
+    srand(time(NULL));
     const char* config_file = (argc > 1) ? argv[1] : "../configs/config.json";
 
     signal(SIGINT, handle_shutdown_signal);

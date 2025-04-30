@@ -4,5 +4,6 @@
   "max_id": 199,
   "min_value": -20.0,
   "max_value": 50.0,
-  "unit": "C"
+  "unit": "C",
+  "update_interval_ms": 2000
 }

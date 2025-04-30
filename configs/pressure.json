@@ -4,5 +4,6 @@
   "max_id": 299,
   "min_value": 900.0,
   "max_value": 1100.0,
-  "unit": "hPa"
+  "unit": "hPa",
+  "update_interval_ms": 3000
 }
