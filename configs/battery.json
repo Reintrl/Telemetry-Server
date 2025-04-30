@@ -4,7 +4,5 @@
   "max_id": 799,
   "min_value": 0.0,
   "max_value": 100.0,
-  "unit": "%",
-  "status_options": ["CHARGING", "DISCHARGING", "FULL", "CRITICAL"],
-  "update_variation": 2.0
+  "unit": "%"
 }

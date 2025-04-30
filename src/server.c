@@ -112,7 +112,7 @@ void* handle_client(void* arg) {
                 cfg->sensor_configs[i].min_id, cfg->sensor_configs[i].max_id);
         strncat(sensor_list, tmp, sizeof(sensor_list) - strlen(sensor_list) - 1);
     }
-    strncat(sensor_list, "Enter your selection (e.g. '1,3,5'): ",
+    strncat(sensor_list, "To exit press 'Ctrl+c'\nEnter your selection (e.g. '1,3,5'): ",
            sizeof(sensor_list) - strlen(sensor_list) - 1);
 
     // Отправляем список датчиков клиенту

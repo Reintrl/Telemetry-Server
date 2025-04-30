@@ -5,9 +5,8 @@ typedef struct {
     char sensor_type[20];
     int sensor_id;
     double value;
-    char value_str[32]; // Для хранения строкового представления значения
+    char value_str[32];
     char unit[10];
-    char status[20];
     char timestamp[20];
 } TelemetryData;
 

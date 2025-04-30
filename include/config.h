@@ -10,8 +10,6 @@ typedef struct {
     double min_value;
     double max_value;
     char unit[10];
-    char status_options[3][20];
-    double update_variation;
 } SensorConfig;
 
 typedef struct {

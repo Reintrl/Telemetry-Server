@@ -4,7 +4,5 @@
   "max_id": 499,
   "min_value": 0.0,
   "max_value": 10.0,
-  "unit": "mm/s",
-  "status_options": ["NORMAL", "WARNING", "DANGER"],
-  "update_variation": 0.3
+  "unit": "mm/s"
 }

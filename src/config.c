@@ -56,8 +56,6 @@ void load_sensor_config(const char* filename, SensorConfig* config) {
     config->min_value = json_object_get_double(json_object_object_get(json, "min_value"));
     config->max_value = json_object_get_double(json_object_object_get(json, "max_value"));
     read_json_string(json, "unit", config->unit, sizeof(config->unit), "");
-    read_string_array(json, "status_options", config->status_options, 3, NULL);
-    config->update_variation = json_object_get_double(json_object_object_get(json, "update_variation"));
 
     json_object_put(json);
 }
@@ -129,9 +127,6 @@ void print_config() {
         printf("\nSensor type: %s\n", sensor->sensor_type);
         printf("ID range: %d - %d\n", sensor->min_id, sensor->max_id);
         printf("Value range: %.2f - %.2f %s\n", sensor->min_value, sensor->max_value, sensor->unit);
-        printf("Status options: %s, %s, %s\n",
-              sensor->status_options[0], sensor->status_options[1], sensor->status_options[2]);
-        printf("Update variation: %.2f\n", sensor->update_variation);
     }
     printf("\n===========================\n");
 }

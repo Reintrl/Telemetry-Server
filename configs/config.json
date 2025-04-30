@@ -12,7 +12,6 @@
     "../configs/pressure.json",
     "../configs/humidity.json",
     "../configs/vibration.json",
-    "../configs/gps.json",
     "../configs/power.json",
     "../configs/battery.json"
   ]
