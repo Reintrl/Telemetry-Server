@@ -62,8 +62,7 @@ void* sensor_thread(void* arg) {
 
     while (server_running && is_client_connected(data->socket)) {
         TelemetryData telemetry = generate_telemetry_by_type(data->sensor_type);
-        SerializeFormat format = get_random_serialization_format();
-        serialize_data(&telemetry, buffer, sizeof(buffer), format);
+        serialize_data(&telemetry, buffer, sizeof(buffer), data->format);  // Используем выбранный формат
 
         if (send(data->socket, buffer, strlen(buffer), MSG_NOSIGNAL) <= 0) {
             if (errno == EPIPE) {
@@ -83,31 +82,44 @@ void* sensor_thread(void* arg) {
     return NULL;
 }
 
-void* handle_client(void* arg) {
-    client_info_t* client = (client_info_t*)arg;
-    const ServerConfig* cfg = get_config();
+static void cleanup_client(client_info_t* client, int* selected_sensors,
+                         pthread_t* sensor_threads, int sensor_count) {
+    if (selected_sensors) free(selected_sensors);
+
+    if (sensor_threads) {
+        for (int i = 0; i < sensor_count; i++) {
+            if (sensor_threads[i]) {
+                pthread_cancel(sensor_threads[i]);
+            }
+        }
+        free(sensor_threads);
+    }
+
+    if (client) {
+        close(client->socket);
+        pthread_mutex_lock(&client_count_mutex);
+        active_clients_count--;
+        pthread_mutex_unlock(&client_count_mutex);
+        free(client);
+    }
+}
+
+static int process_client_input(client_info_t* client, const ServerConfig* cfg,
+                              int* selected_sensors, int* sensor_count,
+                              int* attempts_remaining) {
     char client_ip[INET_ADDRSTRLEN];
     char buffer[1024];
-    int* selected_sensors = malloc(cfg->max_sensors * sizeof(int));
-    int sensor_count = 0;
-    pthread_t* sensor_threads = NULL;
-
-    if (!selected_sensors) {
-        inet_ntop(AF_INET, &(client->address.sin_addr), client_ip, INET_ADDRSTRLEN);
-        log_message(LOG_ERROR, "Memory allocation failed for client %s:%d",
-                   client_ip, ntohs(client->address.sin_port));
-        goto cleanup;
-    }
+    int all_valid = 1;
+    int temp_selected_sensors[cfg->max_sensors];
 
     inet_ntop(AF_INET, &(client->address.sin_addr), client_ip, INET_ADDRSTRLEN);
     int client_port = ntohs(client->address.sin_port);
-    log_message(LOG_INFO, "Client %s:%d connected", client_ip, client_port);
 
     // Формируем список датчиков
     char sensor_list[2048];
     snprintf(sensor_list, sizeof(sensor_list),
-             "Available sensors (select up to %d comma-separated numbers):\n",
-             cfg->max_sensors);
+            "Available sensors (select up to %d comma-separated numbers, 1-%d):\n",
+            cfg->max_sensors, cfg->sensor_config_count);
 
     for (int i = 0; i < cfg->sensor_config_count; i++) {
         char tmp[100];
@@ -116,16 +128,23 @@ void* handle_client(void* arg) {
                 cfg->sensor_configs[i].min_id, cfg->sensor_configs[i].max_id);
         strncat(sensor_list, tmp, sizeof(sensor_list) - strlen(sensor_list) - 1);
     }
-    strncat(sensor_list, "To exit press 'Ctrl+c'\nEnter your selection (e.g. '1,3,5'): ",
+
+    // Добавляем информацию о попытках
+    char attempts_msg[100];
+    snprintf(attempts_msg, sizeof(attempts_msg),
+            "Attempts remaining: %d\n", *attempts_remaining);
+    strncat(sensor_list, attempts_msg, sizeof(sensor_list) - strlen(sensor_list) - 1);
+
+    strncat(sensor_list, "Enter your selection (e.g. '1,3,5'): ",
            sizeof(sensor_list) - strlen(sensor_list) - 1);
 
-    // Отправляем список датчиков клиенту
+    // Отправляем список
     if (send(client->socket, sensor_list, strlen(sensor_list), 0) <= 0) {
         log_message(LOG_ERROR, "Failed to send sensor list to %s:%d", client_ip, client_port);
-        goto cleanup;
+        return -1;
     }
 
-    // Получаем выбор клиента
+    // Получаем выбор
     ssize_t bytes_read = recv(client->socket, buffer, sizeof(buffer) - 1, 0);
     if (bytes_read <= 0) {
         if (bytes_read == 0) {
@@ -135,50 +154,147 @@ void* handle_client(void* arg) {
             log_message(LOG_ERROR, "Error receiving selection from %s:%d: %s",
                        client_ip, client_port, strerror(errno));
         }
-        goto cleanup;
+        return -1;
     }
 
     buffer[bytes_read] = '\0';
+    all_valid = 1;
+    int temp_count = 0;
 
-    // Парсим выбор клиента
+    // Парсим выбор
     char* token = strtok(buffer, ",");
-    while (token != NULL && sensor_count < cfg->max_sensors) {
-        int idx = atoi(token) - 1;  // Конвертируем в 0-based индекс
+    while (token != NULL && temp_count < cfg->max_sensors) {
+        int idx = atoi(token) - 1;
+
         if (idx >= 0 && idx < cfg->sensor_config_count) {
-            selected_sensors[sensor_count++] = idx;
-            log_message(LOG_INFO, "Client %s:%d selected sensor: %s",
-                       client_ip, client_port,
-                       cfg->sensor_configs[idx].sensor_type);
+            temp_selected_sensors[temp_count++] = idx;
+        } else {
+            all_valid = 0;
+            log_message(LOG_WARNING, "Client %s:%d selected invalid sensor index: %d",
+                       client_ip, client_port, idx+1);
         }
         token = strtok(NULL, ",");
     }
 
-    if (sensor_count == 0) {
-        const char* msg = "No valid sensors selected. Disconnecting.\n";
-        send(client->socket, msg, strlen(msg), 0);
-        log_message(LOG_WARNING, "Client %s:%d selected no valid sensors",
+    if (all_valid && temp_count > 0) {
+        for (int i = 0; i < temp_count; i++) {
+            selected_sensors[i] = temp_selected_sensors[i];
+            log_message(LOG_INFO, "Client %s:%d selected sensor: %s",
+                       client_ip, client_port,
+                       cfg->sensor_configs[temp_selected_sensors[i]].sensor_type);
+        }
+        *sensor_count = temp_count;
+        return 1;
+    } else {
+        (*attempts_remaining)--;
+        if (*attempts_remaining > 0) {
+            const char* msg = "Invalid selection. Please try again.\n";
+            send(client->socket, msg, strlen(msg), 0);
+            log_message(LOG_WARNING, "Client %s:%d made invalid selection (%d attempts left",
+                       client_ip, client_port, *attempts_remaining);
+            return 0;
+        } else {
+            const char* msg = "Maximum attempts reached. Disconnecting.\n";
+            send(client->socket, msg, strlen(msg), 0);
+            log_message(LOG_WARNING, "Client %s:%d disconnected due to invalid selection",
+                       client_ip, client_port);
+            return -1;
+        }
+    }
+}
+
+void* handle_client(void* arg) {
+    client_info_t* client = (client_info_t*)arg;
+    const ServerConfig* cfg = get_config();
+    int* selected_sensors = malloc(cfg->max_sensors * sizeof(int));
+    int sensor_count = 0;
+    pthread_t* sensor_threads = NULL;
+    int attempts_remaining = 3;
+    char client_ip[INET_ADDRSTRLEN];
+
+    if (!selected_sensors) {
+        inet_ntop(AF_INET, &(client->address.sin_addr), client_ip, INET_ADDRSTRLEN);
+        log_message(LOG_ERROR, "Memory allocation failed for client %s:%d",
+                  client_ip, ntohs(client->address.sin_port));
+        cleanup_client(client, NULL, NULL, 0);
+        return NULL;
+    }
+
+    inet_ntop(AF_INET, &(client->address.sin_addr), client_ip, INET_ADDRSTRLEN);
+    int client_port = ntohs(client->address.sin_port);
+    log_message(LOG_INFO, "Client %s:%d connected", client_ip, client_port);
+
+    // Обработка выбора сенсоров
+    int input_result;
+    do {
+        input_result = process_client_input(client, cfg, selected_sensors, &sensor_count, &attempts_remaining);
+        if (input_result == -1) {
+            cleanup_client(client, selected_sensors, NULL, 0);
+            return NULL;
+        }
+    } while (input_result == 0);
+
+    // Запрос формата сериализации
+    const char* format_prompt =
+        "\nSelect serialization format:\n"
+        "1. JSON\n"
+        "2. XML\n"
+        "3. CSV\n"
+        "Enter your choice (1-3): ";
+
+    if (send(client->socket, format_prompt, strlen(format_prompt), 0) <= 0) {
+        log_message(LOG_ERROR, "Failed to send format prompt to %s:%d", client_ip, client_port);
+        cleanup_client(client, selected_sensors, NULL, 0);
+        return NULL;
+    }
+
+    // Получаем выбор формата
+    char format_choice[10];
+    ssize_t bytes_read = recv(client->socket, format_choice, sizeof(format_choice) - 1, 0);
+    if (bytes_read <= 0) {
+        log_message(LOG_INFO, "Client %s:%d disconnected during format selection",
                    client_ip, client_port);
-        goto cleanup;
+        cleanup_client(client, selected_sensors, NULL, 0);
+        return NULL;
+    }
+    format_choice[bytes_read] = '\0';
+
+    // Определяем выбранный формат
+    SerializeFormat format;
+    switch (atoi(format_choice)) {
+        case 1: format = SERIALIZE_JSON; break;
+        case 2: format = SERIALIZE_XML; break;
+        case 3: format = SERIALIZE_CSV; break;
+        default:
+            format = SERIALIZE_JSON;
+            const char* invalid_msg = "Invalid format selection. Using JSON as default.\n";
+            send(client->socket, invalid_msg, strlen(invalid_msg), 0);
+            break;
     }
 
     // Подтверждаем выбор
-    const char* confirm_fmt = "Selected %d sensors. Starting data stream...\n";
-    char confirm_msg[100];
-    snprintf(confirm_msg, sizeof(confirm_msg), confirm_fmt, sensor_count);
-    if (send(client->socket, confirm_msg, strlen(confirm_msg), 0) <= 0) {
-        log_message(LOG_ERROR, "Failed to send confirmation to %s:%d",
-                   client_ip, client_port);
-        goto cleanup;
+    const char* format_name = "";
+    switch (format) {
+        case SERIALIZE_JSON: format_name = "JSON"; break;
+        case SERIALIZE_XML:  format_name = "XML";  break;
+        case SERIALIZE_CSV:  format_name = "CSV";  break;
     }
+    char format_confirm[100];
+    snprintf(format_confirm, sizeof(format_confirm),
+            "Selected format: %s. Starting data stream...\n", format_name);
+    send(client->socket, format_confirm, strlen(format_confirm), 0);
 
-    // Создаем массив для хранения ID потоков датчиков
+    log_message(LOG_INFO, "Client %s:%d selected format: %s",
+               client_ip, client_port, format_name);
+
+    // Создаем потоки для датчиков
     sensor_threads = malloc(sensor_count * sizeof(pthread_t));
     if (!sensor_threads) {
         log_message(LOG_ERROR, "Memory allocation failed for sensor threads");
-        goto cleanup;
+        cleanup_client(client, selected_sensors, NULL, 0);
+        return NULL;
     }
 
-    // Создаем потоки для каждого выбранного датчика
     for (int i = 0; i < sensor_count; i++) {
         int sensor_idx = selected_sensors[i];
         const char* sensor_name = cfg->sensor_configs[sensor_idx].sensor_type;
@@ -193,6 +309,7 @@ void* handle_client(void* arg) {
         strncpy(thread_data->client_ip, client_ip, INET_ADDRSTRLEN);
         thread_data->client_port = client_port;
         thread_data->sensor_type = sensor_name;
+        thread_data->format = format;
 
         if (pthread_create(&sensor_threads[i], NULL, sensor_thread, (void*)thread_data) != 0) {
             log_message(LOG_ERROR, "Thread creation failed for sensor %s", sensor_name);
@@ -200,28 +317,13 @@ void* handle_client(void* arg) {
         }
     }
 
-    // Основной цикл - проверяем соединение с клиентом
+    // Основной цикл проверки соединения
     while (server_running && is_client_connected(client->socket)) {
         sleep(1);
     }
 
-    // Останавливаем все потоки датчиков
-    for (int i = 0; i < sensor_count; i++) {
-        if (sensor_threads[i]) {
-            pthread_cancel(sensor_threads[i]);
-        }
-    }
-
     log_message(LOG_INFO, "Client %s:%d disconnected", client_ip, client_port);
-
-cleanup:
-    free(selected_sensors);
-    if (sensor_threads) free(sensor_threads);
-    close(client->socket);
-    pthread_mutex_lock(&client_count_mutex);
-    active_clients_count--;
-    pthread_mutex_unlock(&client_count_mutex);
-    free(client);
+    cleanup_client(client, selected_sensors, sensor_threads, sensor_count);
     return NULL;
 }
 

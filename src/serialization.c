@@ -4,10 +4,6 @@
 #include <string.h>
 #include <time.h>
 
-SerializeFormat get_random_serialization_format() {
-    return rand() % 3; // 0=JSON, 1=XML, 2=CSV
-}
-
 void serialize_data(const TelemetryData* data, char* buffer, size_t size, SerializeFormat format) {
     switch(format) {
         case SERIALIZE_JSON:

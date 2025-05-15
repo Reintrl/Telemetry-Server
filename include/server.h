@@ -3,6 +3,7 @@
 
 #include <signal.h>
 #include <netinet/in.h>
+#include "../include/config.h"
 
 extern pthread_mutex_t client_count_mutex;
 extern int active_clients_count;
@@ -17,6 +18,7 @@ typedef struct {
     char client_ip[INET_ADDRSTRLEN];
     int client_port;
     const char* sensor_type;
+    SerializeFormat format;
 } sensor_thread_data_t;
 
 void setup_signal_handlers();
