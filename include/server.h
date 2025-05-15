@@ -3,7 +3,18 @@
 
 #include <signal.h>
 #include <netinet/in.h>
-#include "../include/config.h"
+#include "config.h"
+#include "logger.h"
+#include "data_generator.h"
+#include "serialization.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <pthread.h>
+#include <errno.h>
 
 extern pthread_mutex_t client_count_mutex;
 extern int active_clients_count;

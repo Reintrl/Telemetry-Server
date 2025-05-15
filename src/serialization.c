@@ -1,8 +1,5 @@
 #include "../include/serialization.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
+
 
 void serialize_data(const TelemetryData* data, char* buffer, size_t size, SerializeFormat format) {
     switch(format) {

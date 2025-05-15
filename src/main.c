@@ -22,11 +22,11 @@ int main(int argc, char* argv[]) {
 
     load_config(config_file);
     print_config();
-    init_logger();  // Инициализация логгера
+    init_logger();
 
     start_server();
     run_server();
 
-    close_logger();  // Корректное закрытие
+    close_logger();
     return EXIT_SUCCESS;
 }

@@ -1,16 +1,4 @@
 #include "../include/server.h"
-#include "../include/config.h"
-#include "../include/logger.h"
-#include "../include/data_generator.h"
-#include "../include/serialization.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <pthread.h>
-#include <errno.h>
 
 pthread_mutex_t client_count_mutex = PTHREAD_MUTEX_INITIALIZER;
 int active_clients_count = 0;
@@ -62,7 +50,7 @@ void* sensor_thread(void* arg) {
 
     while (server_running && is_client_connected(data->socket)) {
         TelemetryData telemetry = generate_telemetry_by_type(data->sensor_type);
-        serialize_data(&telemetry, buffer, sizeof(buffer), data->format);  // Используем выбранный формат
+        serialize_data(&telemetry, buffer, sizeof(buffer), data->format);
 
         if (send(data->socket, buffer, strlen(buffer), MSG_NOSIGNAL) <= 0) {
             if (errno == EPIPE) {

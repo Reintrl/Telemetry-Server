@@ -1,10 +1,5 @@
 #include "../include/config.h"
-#include <json-c/json.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-#include <strings.h> // для strcasecmp
+
 
 static ServerConfig config = {0};
 

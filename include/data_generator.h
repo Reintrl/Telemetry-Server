@@ -1,6 +1,12 @@
 #ifndef DATA_GENERATOR_H
 #define DATA_GENERATOR_H
 
+#include <stdio.h>
+#include "config.h"
+#include <stdlib.h>
+#include <time.h>
+#include <string.h>
+
 typedef struct {
     char sensor_type[20];
     int sensor_id;

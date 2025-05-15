@@ -1,12 +1,5 @@
 #include "../include/data_generator.h"
 
-#include <stdio.h>
-
-#include "../include/config.h"
-#include <stdlib.h>
-#include <time.h>
-#include <string.h>
-
 void init_data_generator() {
     srand(time(NULL));
 }
@@ -18,7 +11,6 @@ TelemetryData generate_telemetry() {
         return empty;
     }
 
-    // Select random sensor type
     int sensor_type_idx = rand() % cfg->sensor_config_count;
     return generate_telemetry_by_type(cfg->sensor_configs[sensor_type_idx].sensor_type);
 }
@@ -57,13 +49,12 @@ TelemetryData generate_telemetry_by_type(const char* sensor_type) {
 TelemetryData generate_telemetry_by_id(int sensor_id) {
     const ServerConfig* cfg = get_config();
 
-    // Find which sensor type this ID belongs to
     for (int i = 0; i < cfg->sensor_config_count; i++) {
         if (sensor_id >= cfg->sensor_configs[i].min_id &&
             sensor_id <= cfg->sensor_configs[i].max_id) {
 
             TelemetryData data = generate_telemetry_by_type(cfg->sensor_configs[i].sensor_type);
-            data.sensor_id = sensor_id; // Override with requested ID
+            data.sensor_id = sensor_id;
             return data;
         }
     }

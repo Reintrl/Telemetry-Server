@@ -1,12 +1,5 @@
 #include "../include/logger.h"
-#include "../include/config.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <stdarg.h>
-#include <unistd.h>
-#include <sys/stat.h>
+
 
 static FILE* log_file = NULL;
 static const char* log_level_names[] = {"ERROR", "WARN", "INFO", "DEBUG"};
@@ -33,17 +26,13 @@ void log_message(LogLevel level, const char* format, ...) {
     time_t now = time(NULL);
     struct tm *tm_info = localtime(&now);
 
-    // Форматируем время
     strftime(buffer, sizeof(buffer), "[%Y-%m-%d %H:%M:%S] ", tm_info);
 
-    // Добавляем уровень логирования
     size_t prefix_len = strlen(buffer);
     snprintf(buffer + prefix_len, sizeof(buffer) - prefix_len, "%s: ", log_level_names[level]);
 
-    // Обновляем длину префикса
     prefix_len = strlen(buffer);
 
-    // Добавляем сообщение
     va_start(args, format);
     vsnprintf(buffer + prefix_len, sizeof(buffer) - prefix_len, format, args);
     va_end(args);

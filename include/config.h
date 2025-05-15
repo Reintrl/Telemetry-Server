@@ -1,7 +1,11 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#include <stdint.h>
+#include <json-c/json.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
 
 typedef enum {
     SERIALIZE_JSON,
@@ -23,7 +27,7 @@ typedef struct {
     // Server settings
     int port;
     int max_clients;
-    int max_sensors;  // Добавлено
+    int max_sensors;
     int update_interval_ms;
 
     // Logging settings
